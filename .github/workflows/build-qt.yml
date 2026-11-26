@@ -1,0 +1,81 @@
+name: Build Qt 6.12.1 LTS
+
+on:
+  workflow_dispatch:
+    inputs:
+      qt_version:
+        description: 'Phiên bản Qt cần build'
+        required: true
+        default: '6.12.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build-qtbase:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: windows-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repo builder
+        uses: actions/checkout@v4
+
+      - name: Cài đặt thư viện phụ thuộc (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libfreetype-dev libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev libxcb-cursor-dev libxcb-glx0-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render-util0-dev libxcb-shape0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-xkb-dev
+
+      - name: Cài đặt Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja -y
+
+      - name: Thiết lập môi trường MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Tải mã nguồn qtbase ${{ inputs.qt_version }}
+        shell: bash
+        run: |
+          VER="${{ inputs.qt_version }}"
+          MINOR="${VER%.*}"
+          URL_OFFICIAL="https://download.qt.io/official_releases/qt/${MINOR}/${VER}/submodules/qtbase-everywhere-src-${VER}.tar.xz"
+          URL_ARCHIVE="https://download.qt.io/archive/qt/${MINOR}/${VER}/submodules/qtbase-everywhere-src-${VER}.tar.xz"
+          curl -fL -o qtbase.tar.xz "$URL_OFFICIAL" || curl -fL -o qtbase.tar.xz "$URL_ARCHIVE"
+          tar -xf qtbase.tar.xz
+          mv "qtbase-everywhere-src-${VER}" qtbase-src
+
+      - name: Cấu hình CMake
+        shell: bash
+        run: |
+          cmake -S qtbase-src -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=qt-${{ inputs.qt_version }}-${{ matrix.platform }} \
+            -DQT_BUILD_TESTS=OFF \
+            -DQT_BUILD_EXAMPLES=OFF
+
+      - name: Biên dịch và Cài đặt vào thư mục đóng gói
+        shell: bash
+        run: |
+          cmake --build build --parallel
+          cmake --install build
+
+      - name: Nén thành file ZIP
+        shell: bash
+        run: |
+          7z a -tzip qtbase-${{ inputs.qt_version }}-${{ matrix.platform }}.zip qt-${{ inputs.qt_version }}-${{ matrix.platform }}
+
+      - name: Đẩy file ZIP lên GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.qt_version }}
+          name: Qt ${{ inputs.qt_version }} Prebuilt
+          files: qtbase-${{ inputs.qt_version }}-${{ matrix.platform }}.zip
