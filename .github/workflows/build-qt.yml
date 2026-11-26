@@ -44,11 +44,13 @@ jobs:
         if: matrix.os_dir == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libfreetype-dev libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev libxcb-cursor-dev libxcb-glx0-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render-util0-dev libxcb-shape0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-xkb-dev
-
-      - name: Cài Ninja (Windows)
-        if: matrix.os_dir == 'Windows'
-        run: choco install ninja -y
+          sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-dev \
+            libfontconfig1-dev libfreetype-dev libx11-dev libx11-xcb-dev \
+            libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev \
+            libxcb-cursor-dev libxcb-glx0-dev libxcb-icccm4-dev libxcb-image0-dev \
+            libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render-util0-dev \
+            libxcb-shape0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev \
+            libxcb-xkb-dev
 
       - name: Thiết lập MSVC (Windows amd64)
         if: matrix.os_dir == 'Windows' && matrix.arch_dir == 'amd64'
@@ -61,6 +63,11 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
+
+      - name: Đảm bảo có Ninja (Windows)
+        if: matrix.os_dir == 'Windows'
+        shell: bash
+        run: command -v ninja >/dev/null 2>&1 || choco install ninja -y
 
       - name: Cài Ninja (macOS)
         if: matrix.os_dir == 'MacOS'
@@ -77,15 +84,26 @@ jobs:
           tar -xf qtbase.tar.xz
           mv "qtbase-everywhere-src-${VER}" qtbase-src
 
-      - name: Biên dịch và Cài đặt vào cấu trúc thư mục đích
+      - name: Biên dịch và Cài đặt vào libqt_6.12/${{ matrix.os_dir }}/${{ matrix.arch_dir }}
         shell: bash
         run: |
-          INSTALL_DIR="$PWD/dist/Qt-${{ inputs.qt_version }}/${{ matrix.os_dir }}/${{ matrix.arch_dir }}"
+          INSTALL_DIR="$PWD/dist/libqt_6.12/${{ matrix.os_dir }}/${{ matrix.arch_dir }}"
+          EXTRA_FLAGS=""
+          if [ "${{ matrix.os_dir }}" = "MacOS" ]; then
+            if [ "${{ matrix.arch_dir }}" = "amd64" ]; then
+              EXTRA_FLAGS="-DCMAKE_OSX_ARCHITECTURES=x86_64"
+            else
+              EXTRA_FLAGS="-DCMAKE_OSX_ARCHITECTURES=arm64"
+            fi
+          fi
+
           cmake -S qtbase-src -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DQT_BUILD_TESTS=OFF \
-            -DQT_BUILD_EXAMPLES=OFF
+            -DQT_BUILD_EXAMPLES=OFF \
+            $EXTRA_FLAGS
+
           cmake --build build --parallel
           cmake --install build
 
@@ -95,7 +113,7 @@ jobs:
           name: qt-${{ matrix.os_dir }}-${{ matrix.arch_dir }}
           path: dist/
 
-  # GIAI ĐOẠN 2: Gom tất cả vào 1 file ZIP và đẩy lên Releases
+  # GIAI ĐOẠN 2: Gom tất cả vào 1 file ZIP kèm CMakeLists.txt và đẩy lên Releases
   package:
     needs: build
     runs-on: ubuntu-latest
@@ -107,14 +125,54 @@ jobs:
           path: merged/
           merge-multiple: true
 
-      - name: Nén thành 1 file ZIP duy nhất
+      - name: Tạo file CMakeLists.txt tự nhận diện OS/Arch
+        run: |
+          cat << 'EOF' > merged/libqt_6.12/CMakeLists.txt
+          cmake_minimum_required(VERSION 3.21)
+
+          # 1. Nhận diện hệ điều hành
+          if(WIN32)
+              set(_QT_OS "Windows")
+          elseif(APPLE)
+              set(_QT_OS "MacOS")
+          elseif(UNIX)
+              set(_QT_OS "Linux")
+          else()
+              message(FATAL_ERROR "[libqt_6.12] Hệ điều hành không được hỗ trợ: ${CMAKE_SYSTEM_NAME}")
+          endif()
+
+          # 2. Nhận diện kiến trúc CPU (amd64 / arm64)
+          string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _PROC_LOWER)
+          if(_PROC_LOWER MATCHES "aarch64|arm64")
+              set(_QT_ARCH "arm64")
+          elseif(_PROC_LOWER MATCHES "x86_64|amd64|x64")
+              set(_QT_ARCH "amd64")
+          else()
+              message(FATAL_ERROR "[libqt_6.12] Kiến trúc CPU không được hỗ trợ: ${CMAKE_SYSTEM_PROCESSOR}")
+          endif()
+
+          # 3. Kiểm tra thư mục Qt tương ứng
+          set(_QT_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${_QT_OS}/${_QT_ARCH}")
+          if(NOT EXISTS "${_QT_TARGET_DIR}")
+              message(FATAL_ERROR "[libqt_6.12] Không tìm thấy bản build Qt cho ${_QT_OS}/${_QT_ARCH} tại: ${_QT_TARGET_DIR}")
+          endif()
+
+          message(STATUS "[libqt_6.12] Đang sử dụng Qt 6.12 cho nền tảng: ${_QT_OS}/${_QT_ARCH}")
+
+          # 4. Đẩy đường dẫn Qt ra CMakeLists.txt của dự án chính
+          set(_NEW_PREFIX_PATH "${_QT_TARGET_DIR};${CMAKE_PREFIX_PATH}")
+          set(CMAKE_PREFIX_PATH "${_NEW_PREFIX_PATH}" PARENT_SCOPE)
+          set(LIBQT_6_12_DIR "${_QT_TARGET_DIR}" PARENT_SCOPE)
+          EOF
+
+      - name: Nén thành file libqt_6.12.zip
         run: |
           cd merged
-          zip -r ../Qt-${{ inputs.qt_version }}-AllPlatforms.zip Qt-${{ inputs.qt_version }}
+          zip -r ../libqt_6.12.zip libqt_6.12
 
       - name: Đẩy lên GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.qt_version }}
-          name: Qt ${{ inputs.qt_version }} All-in-One Prebuilt
-          files: Qt-${{ inputs.qt_version }}-AllPlatforms.zip
+          name: Qt ${{ inputs.qt_version }} (libqt_6.12)
+          files: libqt_6.12.zip
