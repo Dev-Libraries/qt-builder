@@ -55,11 +55,18 @@ jobs:
         shell: bash
         run: |
           PLATFORM="${{ inputs.target_platform }}"
-          OS_DIR="${PLATFORM%-*}"
+          RAW_OS="${PLATFORM%-*}"
           ARCH_DIR="${PLATFORM#*-}"
           VER="${{ inputs.qt_version }}"
 
-          SUFFIX="${OS_DIR}-${ARCH_DIR}"
+          case "$RAW_OS" in
+            Win*)    OS_DIR="Windows" ;;
+            Ubuntu*) OS_DIR="Linux" ;;
+            MacOS*)  OS_DIR="MacOS" ;;
+            *)       OS_DIR="$RAW_OS" ;;
+          esac
+
+          SUFFIX="${RAW_OS}-${ARCH_DIR}"
           if [ -n "${{ inputs.variant_tag }}" ]; then
             CLEAN_TAG=$(echo "${{ inputs.variant_tag }}" | tr -cd 'a-zA-Z0-9_-')
             SUFFIX="${SUFFIX}-${CLEAN_TAG}"
@@ -68,16 +75,16 @@ jobs:
           PKG_NAME="libqt_${VER}"
           ZIP_NAME="${PKG_NAME}-${SUFFIX}.zip"
 
-          echo "Target: OS=$OS_DIR \vert{} ARCH=$ARCH_DIR"
-          echo "Output ZIP: $ZIP_NAME"
+          echo "Internal Dir: ${PKG_NAME}/${OS_DIR}/${ARCH_DIR}"
+          echo "Output ZIP:   $ZIP_NAME"
 
           echo "os_dir=$OS_DIR" >> $GITHUB_OUTPUT
           echo "arch_dir=$ARCH_DIR" >> $GITHUB_OUTPUT
           echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      - name: 2. Install system build dependencies (Ubuntu / Container)
-        if: startsWith(steps.meta.outputs.os_dir, 'Ubuntu')
+      - name: 2. Install system build dependencies (Linux / Container)
+        if: steps.meta.outputs.os_dir == 'Linux'
         shell: bash
         run: |
           SUDO=""
@@ -97,7 +104,7 @@ jobs:
           pip3 install --upgrade cmake ninja || pip3 install --break-system-packages --upgrade cmake ninja
 
       - name: 3. Setup MSVC (Windows)
-        if: startsWith(steps.meta.outputs.os_dir, 'Win')
+        if: steps.meta.outputs.os_dir == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ steps.meta.outputs.arch_dir == 'amd64' && 'x64' || 'arm64' }}
@@ -105,7 +112,7 @@ jobs:
       - name: 4. Ensure Ninja is available (Windows / macOS)
         shell: bash
         run: |
-          if [[ "${{ steps.meta.outputs.os_dir }}" == Win* ]]; then
+          if [ "${{ steps.meta.outputs.os_dir }}" = "Windows" ]; then
             command -v ninja >/dev/null 2>&1 || choco install ninja -y
           elif [ "${{ steps.meta.outputs.os_dir }}" = "MacOS" ]; then
             brew install ninja
@@ -148,8 +155,8 @@ jobs:
           cmake --build build --parallel
           cmake --install build
 
-      - name: 7. Export runtime dependencies & root install_deps.sh (Ubuntu)
-        if: startsWith(steps.meta.outputs.os_dir, 'Ubuntu')
+      - name: 7. Export runtime dependencies & root install_deps.sh (Linux)
+        if: steps.meta.outputs.os_dir == 'Linux'
         shell: bash
         run: |
           PKG_DIR="$PWD/dist/${{ steps.meta.outputs.pkg_name }}"
@@ -203,14 +210,7 @@ jobs:
               set -e
 
               SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-              if [ -f /etc/os-release ]; then
-                  . /etc/os-release
-                  OS_DIR="Ubuntu${VERSION_ID}"
-              else
-                  echo "[Error] Cannot detect Ubuntu version (/etc/os-release not found)."
-                  exit 1
-              fi
+              OS_DIR="Linux"
 
               UNAME_ARCH="$(uname -m)"
               case "$UNAME_ARCH" in
@@ -260,21 +260,11 @@ jobs:
               cmake_minimum_required(VERSION 3.21)
 
               if(WIN32)
-                  set(_QT_OS "Win11")
+                  set(_QT_OS "Windows")
               elseif(APPLE)
                   set(_QT_OS "MacOS")
               elseif(UNIX)
-                  if(EXISTS "/etc/os-release")
-                      file(READ "/etc/os-release" _OS_RELEASE)
-                      string(REGEX MATCH "VERSION_ID=\\"([0-9]+\\\\.[0-9]+)\\"" _MATCH "${_OS_RELEASE}")
-                      if(CMAKE_MATCH_1)
-                          set(_QT_OS "Ubuntu${CMAKE_MATCH_1}")
-                      else()
-                          set(_QT_OS "Linux")
-                      endif()
-                  else()
-                      set(_QT_OS "Linux")
-                  endif()
+                  set(_QT_OS "Linux")
               else()
                   message(FATAL_ERROR "[Qt] Unsupported OS: ${CMAKE_SYSTEM_NAME}")
               endif()
@@ -309,17 +299,17 @@ jobs:
 
               ```text
               {pkg_name}/
-              ├── CMakeLists.txt       # Auto-detects OS and architecture
+              ├── CMakeLists.txt       # Auto-detects OS (Windows/Linux/MacOS) and architecture
               ├── README.md            # Integration and setup guide
-              ├── install_deps.sh      # Runtime dependency installer (Linux/Ubuntu builds only)
-              └── <OS>/<Arch>/
+              ├── install_deps.sh      # Runtime dependency installer (Linux builds only)
+              └── <Windows|Linux|MacOS>/<Arch>/
                   ├── bin/
                   ├── include/
                   ├── lib/
                   └── plugins/
               ```
 
-              Multiple platform archives (e.g., `Win11-amd64`, `Ubuntu22.04-arm64`) can be extracted into the same `{pkg_name}/` root directory side by side.
+              Multiple platform archives (e.g., `Win11-amd64`, `Ubuntu22.04-arm64`) can be extracted into the same `{pkg_name}/` root directory side by side under `Windows/`, `Linux/`, and `MacOS/`.
 
               ## CMake Integration
 
@@ -331,9 +321,9 @@ jobs:
               find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
               ```
 
-              The included `CMakeLists.txt` automatically resolves the matching `<OS>/<Arch>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR`.
+              The included `CMakeLists.txt` automatically resolves the matching `<Windows|Linux|MacOS>/<Arch>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR`.
 
-              ## Linux / Ubuntu Target Setup (Including NVIDIA Jetson)
+              ## Linux Target Setup (Including NVIDIA Jetson)
 
               On clean Ubuntu or Jetson environments, required X11/XCB/OpenGL runtime libraries may not be pre-installed. Run the bundled helper script from the package root before launching your application:
 
@@ -342,7 +332,7 @@ jobs:
               ./install_deps.sh
               ```
 
-              This script detects the current Ubuntu version and architecture, reads `<OS>/<Arch>/apt-runtime-deps.txt`, and installs only the required runtime packages via `apt-get`.
+              This script detects the current architecture, reads `Linux/<Arch>/apt-runtime-deps.txt`, and installs only the required runtime packages via `apt-get`.
           """), encoding="utf-8")
           PYEOF
 
