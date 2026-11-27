@@ -1,4 +1,4 @@
-name: Build Qt
+name: Build Qt Cross Platform
 run-name: Build Qt ${{ inputs.qt_version }} - ${{ inputs.target_platform }}${{ inputs.variant_tag != '' && format(' ({0})', inputs.variant_tag) || '' }}
 
 on:
