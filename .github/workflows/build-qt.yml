@@ -1,5 +1,5 @@
 name: Build Qt Cross Platform
-run-name: Build Qt ${{ inputs.qt_version }} - ${{ inputs.target_platform }}
+run-name: Build Qt ${{ inputs.qt_version }}
 
 on:
   workflow_dispatch:
@@ -8,23 +8,42 @@ on:
         description: 'Qt version to build (e.g., 6.12.1)'
         required: true
         default: '6.12.1'
-      target_platform:
-        description: 'Target platform (OS - Arch)'
-        type: choice
-        required: true
-        default: 'Win11-amd64'
-        options:
-          - Win11-amd64
-          - Win11-arm64
-          - Ubuntu22.04-amd64
-          - Ubuntu22.04-arm64
-          - Ubuntu24.04-amd64
-          - Ubuntu24.04-arm64
-          - MacOS-amd64
-          - MacOS-arm64
+      # --- Target Platforms (Checkbox List) ---
+      plat_win11_amd64:
+        description: '[Platform] Win11-amd64'
+        type: boolean
+        default: true
+      plat_win11_arm64:
+        description: '[Platform] Win11-arm64'
+        type: boolean
+        default: false
+      plat_ubuntu2204_amd64:
+        description: '[Platform] Ubuntu22.04-amd64'
+        type: boolean
+        default: false
+      plat_ubuntu2204_arm64:
+        description: '[Platform] Ubuntu22.04-arm64 (Jetson AGX)'
+        type: boolean
+        default: false
+      plat_ubuntu2404_amd64:
+        description: '[Platform] Ubuntu24.04-amd64'
+        type: boolean
+        default: false
+      plat_ubuntu2404_arm64:
+        description: '[Platform] Ubuntu24.04-arm64'
+        type: boolean
+        default: false
+      plat_macos_amd64:
+        description: '[Platform] MacOS-amd64'
+        type: boolean
+        default: false
+      plat_macos_arm64:
+        description: '[Platform] MacOS-arm64'
+        type: boolean
+        default: false
       # --- Qt Build Options (Checkbox List) ---
       opt_gui:
-        description: '[Option] Qt Gui module (uncheck for headless/CLI builds)'
+        description: '[Option] Qt Gui module (uncheck for headless/CLI)'
         type: boolean
         default: true
       opt_widgets:
@@ -69,26 +88,71 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.collect.outputs.platforms }}
+    steps:
+      - name: Collect selected platforms
+        id: collect
+        shell: bash
+        run: |
+          PLATFORMS=$(python3 - << 'PYEOF'
+          import json
+
+          checks = [
+              ("${{ inputs.plat_win11_amd64 }}",      "Win11-amd64"),
+              ("${{ inputs.plat_win11_arm64 }}",      "Win11-arm64"),
+              ("${{ inputs.plat_ubuntu2204_amd64 }}", "Ubuntu22.04-amd64"),
+              ("${{ inputs.plat_ubuntu2204_arm64 }}", "Ubuntu22.04-arm64"),
+              ("${{ inputs.plat_ubuntu2404_amd64 }}", "Ubuntu24.04-amd64"),
+              ("${{ inputs.plat_ubuntu2404_arm64 }}", "Ubuntu24.04-arm64"),
+              ("${{ inputs.plat_macos_amd64 }}",      "MacOS-amd64"),
+              ("${{ inputs.plat_macos_arm64 }}",      "MacOS-arm64"),
+          ]
+          selected = [name for val, name in checks if val == "true"]
+          print(json.dumps(selected))
+          PYEOF
+          )
+          echo "Selected platforms: $PLATFORMS"
+          if [ "$PLATFORMS" = "[]" ]; then
+            echo "::error::Please select at least one target platform checkbox."
+            exit 1
+          fi
+          echo "platforms=$PLATFORMS" >> $GITHUB_OUTPUT
+
+      - name: Ensure GitHub Release exists
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.qt_version }}
+          name: Qt ${{ inputs.qt_version }}
+          draft: false
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        target_platform: ${{ fromJson(needs.prepare.outputs.platforms) }}
     runs-on: >-
       ${{
-        inputs.target_platform == 'Win11-amd64'       && 'windows-2025' ||
-        inputs.target_platform == 'Win11-arm64'       && 'windows-11-arm' ||
-        inputs.target_platform == 'Ubuntu22.04-amd64' && 'ubuntu-22.04' ||
-        inputs.target_platform == 'Ubuntu22.04-arm64' && 'ubuntu-24.04-arm' ||
-        inputs.target_platform == 'Ubuntu24.04-amd64' && 'ubuntu-24.04' ||
-        inputs.target_platform == 'Ubuntu24.04-arm64' && 'ubuntu-24.04-arm' ||
-        inputs.target_platform == 'MacOS-amd64'       && 'macos-15-intel' ||
+        matrix.target_platform == 'Win11-amd64'       && 'windows-2025' ||
+        matrix.target_platform == 'Win11-arm64'       && 'windows-11-arm' ||
+        matrix.target_platform == 'Ubuntu22.04-amd64' && 'ubuntu-22.04' ||
+        matrix.target_platform == 'Ubuntu22.04-arm64' && 'ubuntu-24.04-arm' ||
+        matrix.target_platform == 'Ubuntu24.04-amd64' && 'ubuntu-24.04' ||
+        matrix.target_platform == 'Ubuntu24.04-arm64' && 'ubuntu-24.04-arm' ||
+        matrix.target_platform == 'MacOS-amd64'       && 'macos-15-intel' ||
         'macos-latest'
       }}
-    container: ${{ inputs.target_platform == 'Ubuntu22.04-arm64' && 'ubuntu:22.04' || null }}
+    container: ${{ matrix.target_platform == 'Ubuntu22.04-arm64' && 'ubuntu:22.04' || null }}
 
     steps:
       - name: 1. Parse OS & Arch
         id: platform
         shell: bash
         run: |
-          PLATFORM="${{ inputs.target_platform }}"
+          PLATFORM="${{ matrix.target_platform }}"
           OS_DIR="${PLATFORM%-*}"
           ARCH_DIR="${PLATFORM#*-}"
           echo "os_dir=$OS_DIR" >> $GITHUB_OUTPUT
