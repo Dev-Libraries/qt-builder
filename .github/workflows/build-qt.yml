@@ -8,12 +8,6 @@ on:
         description: 'Qt version to build (e.g., 6.12.1)'
         required: true
         default: '6.12.1'
-
-      section_platforms:
-        description: '▼ Target Platforms (check one or more below)'
-        type: string
-        required: false
-        default: ''
       Win11-amd64:
         type: boolean
         default: true
@@ -38,12 +32,6 @@ on:
       MacOS-arm64:
         type: boolean
         default: false
-
-      section_advanced:
-        description: '▼ Advanced / Custom'
-        type: string
-        required: false
-        default: ''
       variant_tag:
         description: 'Optional extra suffix tag (leave blank for default)'
         required: false
@@ -448,4 +436,31 @@ jobs:
               find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
               ```
 
-              The included `CMakeLists.txt` automatically resolves the matching `<OS>/<Arch>/<Compiler>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR
+              The included `CMakeLists.txt` automatically resolves the matching `<OS>/<Arch>/<Compiler>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR`.
+
+              ## Linux / Ubuntu Target Setup (Including NVIDIA Jetson)
+
+              On clean Ubuntu or Jetson environments, required X11/XCB/OpenGL runtime libraries may not be pre-installed. Run the bundled helper script from the package root before launching your application:
+
+              ```bash
+              chmod +x install_deps.sh
+              ./install_deps.sh
+              ```
+
+              This script detects the current Ubuntu version and architecture, reads `<OS>/<Arch>/<Compiler>/apt-runtime-deps.txt`, and installs only the required runtime packages via `apt-get`.
+          """), encoding="utf-8")
+          PYEOF
+
+      - name: 10. Package ZIP archive
+        shell: bash
+        run: |
+          cd dist
+          cmake -E tar "cfv" "../${{ steps.meta.outputs.zip_name }}" --format=zip "${{ steps.meta.outputs.pkg_name }}"
+
+      - name: 11. Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.qt_version }}
+          name: Qt ${{ inputs.qt_version }}
+          draft: false
+          files: ${{ steps.meta.outputs.zip_name }}
