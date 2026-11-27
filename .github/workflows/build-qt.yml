@@ -12,10 +12,10 @@ on:
         description: 'Target platform (OS - Arch)'
         type: choice
         required: true
-        default: 'Win11-amd64'
+        default: 'Windows-amd64'
         options:
-          - Win11-amd64
-          - Win11-arm64
+          - Windows-amd64
+          - Windows-arm64
           - Ubuntu22.04-amd64
           - Ubuntu22.04-arm64
           - Ubuntu24.04-amd64
@@ -38,8 +38,8 @@ jobs:
   build-and-release:
     runs-on: >-
       ${{
-        inputs.target_platform == 'Win11-amd64'       && 'windows-2025' ||
-        inputs.target_platform == 'Win11-arm64'       && 'windows-11-arm' ||
+        inputs.target_platform == 'Windows-amd64'     && 'windows-2025' ||
+        inputs.target_platform == 'Windows-arm64'     && 'windows-11-arm' ||
         inputs.target_platform == 'Ubuntu22.04-amd64' && 'ubuntu-22.04' ||
         inputs.target_platform == 'Ubuntu22.04-arm64' && 'ubuntu-24.04-arm' ||
         inputs.target_platform == 'Ubuntu24.04-amd64' && 'ubuntu-24.04' ||
@@ -330,7 +330,7 @@ jobs:
                   └── plugins/
               ```
 
-              Multiple platform archives (e.g., `Win11-amd64`, `Ubuntu22.04-arm64`) can be extracted into the same `{pkg_name}/` root directory side by side under `Windows/`, `Linux/`, and `MacOS/`.
+              Multiple platform archives (e.g., `Windows-amd64`, `Ubuntu22.04-arm64`) can be extracted into the same `{pkg_name}/` root directory side by side under `Windows/`, `Linux/`, and `MacOS/`.
 
               ## CMake Integration
 
