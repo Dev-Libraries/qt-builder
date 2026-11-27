@@ -93,7 +93,7 @@ jobs:
           fi
           export DEBIAN_FRONTEND=noninteractive
           $SUDO apt-get update &&$SUDO apt-get install -y \
-            build-essential python3-pip curl xz-utils pkg-config \
+            build-essential python3-pip curl xz-utils pkg-config libudev-dev \
             libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libfontconfig1-dev libfreetype-dev libx11-dev libx11-xcb-dev \
             libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev \
@@ -118,18 +118,25 @@ jobs:
             brew install ninja
           fi
 
-      - name: 5. Download qtbase ${{ inputs.qt_version }} source
+      - name: 5. Download qtbase & qtserialport ${{ inputs.qt_version }} sources
         shell: bash
         run: |
           VER="${{ inputs.qt_version }}"
           MINOR="${VER%.*}"
-          URL_OFFICIAL="https://download.qt.io/official_releases/qt/${MINOR}/${VER}/submodules/qtbase-everywhere-src-${VER}.tar.xz"
-          URL_ARCHIVE="https://download.qt.io/archive/qt/${MINOR}/${VER}/submodules/qtbase-everywhere-src-${VER}.tar.xz"
-          curl -fL -o qtbase.tar.xz "$URL_OFFICIAL" || curl -fL -o qtbase.tar.xz "$URL_ARCHIVE"
-          tar -xf qtbase.tar.xz
-          mv "qtbase-everywhere-src-${VER}" qtbase-src
 
-      - name: 6. Configure, Build & Install
+          download_submodule() {
+            local MOD="$1"
+            local URL_OFFICIAL="https://download.qt.io/official_releases/qt/${MINOR}/${VER}/submodules/${MOD}-everywhere-src-${VER}.tar.xz"
+            local URL_ARCHIVE="https://download.qt.io/archive/qt/${MINOR}/${VER}/submodules/${MOD}-everywhere-src-${VER}.tar.xz"
+            curl -fL -o "${MOD}.tar.xz" "$URL_OFFICIAL" || curl -fL -o "${MOD}.tar.xz" "$URL_ARCHIVE"
+            tar -xf "${MOD}.tar.xz"
+            mv "${MOD}-everywhere-src-${VER}" "${MOD}-src"
+          }
+
+          download_submodule "qtbase"
+          download_submodule "qtserialport"
+
+      - name: 6. Configure, Build & Install (qtbase + qtserialport)
         shell: bash
         run: |
           PKG_DIR="$PWD/dist/${{ steps.meta.outputs.pkg_name }}"
@@ -144,7 +151,7 @@ jobs:
             fi
           fi
 
-          cmake -S qtbase-src -B build -G Ninja \
+          cmake -S qtbase-src -B build-qtbase -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DBUILD_SHARED_LIBS=ON \
@@ -152,8 +159,22 @@ jobs:
             -DQT_BUILD_EXAMPLES=OFF \
             $EXTRA_FLAGS
 
-          cmake --build build --parallel
-          cmake --install build
+          cmake --build build-qtbase --parallel
+          cmake --install build-qtbase
+
+          if [ "${{ steps.meta.outputs.os_dir }}" = "Windows" ]; then
+            QT_CMAKE="$INSTALL_DIR/bin/qt-cmake.bat"
+          else
+            QT_CMAKE="$INSTALL_DIR/bin/qt-cmake"
+          fi
+
+          "$QT_CMAKE" -S qtserialport-src -B build-qtserialport -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DQT_BUILD_TESTS=OFF \
+            -DQT_BUILD_EXAMPLES=OFF
+
+          cmake --build build-qtserialport --parallel
+          cmake --install build-qtserialport
 
       - name: 7. Export runtime dependencies & root install_deps.sh (Linux)
         if: steps.meta.outputs.os_dir == 'Linux'
@@ -293,7 +314,7 @@ jobs:
           (pkg_dir / "README.md").write_text(textwrap.dedent(f"""\
               # Prebuilt Qt {ver} (`{pkg_name}`)
 
-              Prebuilt Qt ({ver}) binaries structured for cross-platform CMake projects.
+              Prebuilt Qt ({ver} with `qtserialport`) binaries structured for cross-platform CMake projects.
 
               ## Directory Structure
 
@@ -318,14 +339,14 @@ jobs:
 
               ```cmake
               add_subdirectory(ThirdParty/{pkg_name})
-              find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+              find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort)
               ```
 
               The included `CMakeLists.txt` automatically resolves the matching `<Windows|Linux|MacOS>/<Arch>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR`.
 
               ## Linux Target Setup (Including NVIDIA Jetson)
 
-              On clean Ubuntu or Jetson environments, required X11/XCB/OpenGL runtime libraries may not be pre-installed. Run the bundled helper script from the package root before launching your application:
+              On clean Ubuntu or Jetson environments, required X11/XCB/OpenGL/udev runtime libraries may not be pre-installed. Run the bundled helper script from the package root before launching your application:
 
               ```bash
               chmod +x install_deps.sh
