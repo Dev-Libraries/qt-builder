@@ -39,36 +39,6 @@ on:
         type: boolean
         default: false
 
-      section_options:
-        description: '▼ Qt Build Options'
-        type: string
-        required: false
-        default: ''
-      QtGui:
-        type: boolean
-        default: true
-      QtWidgets:
-        type: boolean
-        default: true
-      QtNetwork:
-        type: boolean
-        default: true
-      QtSql:
-        type: boolean
-        default: true
-      OpenGL:
-        type: boolean
-        default: true
-      QtSvg:
-        type: boolean
-        default: false
-      QtSerialPort:
-        type: boolean
-        default: false
-      StaticLibs:
-        type: boolean
-        default: false
-
       section_advanced:
         description: '▼ Advanced / Custom'
         type: string
@@ -79,7 +49,7 @@ on:
         required: false
         default: ''
       custom_cmake_flags:
-        description: 'Extra CMake flags (e.g., -DQT_FEATURE_dbus=OFF)'
+        description: 'Extra CMake flags (leave blank for default)'
         required: false
         default: ''
 
@@ -162,9 +132,12 @@ jobs:
         shell: bash
         run: |
           SUDO=""
-          command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+          if command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
           export DEBIAN_FRONTEND=noninteractive
-          $SUDO apt-get update$SUDO apt-get install -y build-essential python3-pip curl xz-utils pkg-config \
+          $SUDO apt-get update &&$SUDO apt-get install -y \
+            build-essential python3-pip curl xz-utils pkg-config \
             libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libfontconfig1-dev libfreetype-dev libx11-dev libx11-xcb-dev \
             libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev \
@@ -215,16 +188,6 @@ jobs:
           fi
 
           SUFFIX="${OS_DIR}-${ARCH_DIR}-${COMPILER}"
-
-          [ "${{ inputs.StaticLibs }}" = "true" ]   && SUFFIX="${SUFFIX}-static"
-          [ "${{ inputs.QtGui }}" = "false" ]       && SUFFIX="${SUFFIX}-nogui"
-          [ "${{ inputs.QtWidgets }}" = "false" ]   && SUFFIX="${SUFFIX}-nowidgets"
-          [ "${{ inputs.QtNetwork }}" = "false" ]   && SUFFIX="${SUFFIX}-nonetwork"
-          [ "${{ inputs.QtSql }}" = "false" ]       && SUFFIX="${SUFFIX}-nosql"
-          [ "${{ inputs.OpenGL }}" = "false" ]      && SUFFIX="${SUFFIX}-noopengl"
-          [ "${{ inputs.QtSvg }}" = "true" ]        && SUFFIX="${SUFFIX}-svg"
-          [ "${{ inputs.QtSerialPort }}" = "true" ] && SUFFIX="${SUFFIX}-serialport"
-
           if [ -n "${{ inputs.variant_tag }}" ]; then
             CLEAN_TAG=$(echo "${{ inputs.variant_tag }}" | tr -cd 'a-zA-Z0-9_-')
             SUFFIX="${SUFFIX}-${CLEAN_TAG}"
@@ -240,24 +203,16 @@ jobs:
           echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      - name: 6. Download Qt ${{ inputs.qt_version }} sources
+      - name: 6. Download qtbase ${{ inputs.qt_version }} source
         shell: bash
         run: |
           VER="${{ inputs.qt_version }}"
           MINOR="${VER%.*}"
-
-          download_submodule() {
-            local MOD="$1"
-            local URL_OFFICIAL="https://download.qt.io/official_releases/qt/${MINOR}/${VER}/submodules/${MOD}-everywhere-src-${VER}.tar.xz"
-            local URL_ARCHIVE="https://download.qt.io/archive/qt/${MINOR}/${VER}/submodules/${MOD}-everywhere-src-${VER}.tar.xz"
-            curl -fL -o "${MOD}.tar.xz" "$URL_OFFICIAL" || curl -fL -o "${MOD}.tar.xz" "$URL_ARCHIVE"
-            tar -xf "${MOD}.tar.xz"
-            mv "${MOD}-everywhere-src-${VER}" "${MOD}-src"
-          }
-
-          download_submodule "qtbase"
-          [ "${{ inputs.QtSvg }}" = "true" ]        && download_submodule "qtsvg"
-          [ "${{ inputs.QtSerialPort }}" = "true" ] && download_submodule "qtserialport"
+          URL_OFFICIAL="https://download.qt.io/official_releases/qt/${MINOR}/${VER}/submodules/qtbase-everywhere-src-${VER}.tar.xz"
+          URL_ARCHIVE="https://download.qt.io/archive/qt/${MINOR}/${VER}/submodules/qtbase-everywhere-src-${VER}.tar.xz"
+          curl -fL -o qtbase.tar.xz "$URL_OFFICIAL" || curl -fL -o qtbase.tar.xz "$URL_ARCHIVE"
+          tar -xf qtbase.tar.xz
+          mv "qtbase-everywhere-src-${VER}" qtbase-src
 
       - name: 7. Configure, Build & Install
         shell: bash
@@ -274,41 +229,16 @@ jobs:
             fi
           fi
 
-          [ "${{ inputs.StaticLibs }}" = "true" ] && EXTRA_FLAGS="$EXTRA_FLAGS -DBUILD_SHARED_LIBS=OFF" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DBUILD_SHARED_LIBS=ON"
-          [ "${{ inputs.QtGui }}" = "true" ]      && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_gui=ON"     \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_gui=OFF"
-          [ "${{ inputs.QtWidgets }}" = "true" ]  && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_widgets=ON" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_widgets=OFF"
-          [ "${{ inputs.QtNetwork }}" = "true" ]  && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_network=ON" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_network=OFF"
-          [ "${{ inputs.QtSql }}" = "true" ]      && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_sql=ON"     \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_sql=OFF"
-          [ "${{ inputs.OpenGL }}" = "true" ]     && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_opengl=ON"  \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_opengl=OFF"
-
-          cmake -S qtbase-src -B build-qtbase -G Ninja \
+          cmake -S qtbase-src -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+            -DBUILD_SHARED_LIBS=ON \
             -DQT_BUILD_TESTS=OFF \
             -DQT_BUILD_EXAMPLES=OFF \
             $EXTRA_FLAGS
 
-          cmake --build build-qtbase --parallel
-          cmake --install build-qtbase
-
-          if [[ "${{ steps.platform.outputs.os_dir }}" == Win* ]]; then
-            QT_CMAKE="$INSTALL_DIR/bin/qt-cmake.bat"
-          else
-            QT_CMAKE="$INSTALL_DIR/bin/qt-cmake"
-          fi
-
-          build_submodule() {
-            local MOD="$1"
-            "$QT_CMAKE" -S "${MOD}-src" -B "build-${MOD}" -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DQT_BUILD_TESTS=OFF \
-              -DQT_BUILD_EXAMPLES=OFF
-            cmake --build "build-${MOD}" --parallel
-            cmake --install "build-${MOD}"
-          }
-
-          [ "${{ inputs.QtSvg }}" = "true" ]        && build_submodule "qtsvg"
-          [ "${{ inputs.QtSerialPort }}" = "true" ] && build_submodule "qtserialport"
+          cmake --build build --parallel
+          cmake --install build
 
       - name: 8. Export runtime dependencies & root install_deps.sh (Ubuntu)
         if: startsWith(steps.platform.outputs.os_dir, 'Ubuntu')
@@ -518,31 +448,4 @@ jobs:
               find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
               ```
 
-              The included `CMakeLists.txt` automatically resolves the matching `<OS>/<Arch>/<Compiler>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR`.
-
-              ## Linux / Ubuntu Target Setup (Including NVIDIA Jetson)
-
-              On clean Ubuntu or Jetson environments, required X11/XCB/OpenGL runtime libraries may not be pre-installed. Run the bundled helper script from the package root before launching your application:
-
-              ```bash
-              chmod +x install_deps.sh
-              ./install_deps.sh
-              ```
-
-              This script detects the current Ubuntu version and architecture, reads `<OS>/<Arch>/<Compiler>/apt-runtime-deps.txt`, and installs only the required runtime packages via `apt-get`.
-          """), encoding="utf-8")
-          PYEOF
-
-      - name: 10. Package ZIP archive
-        shell: bash
-        run: |
-          cd dist
-          cmake -E tar "cfv" "../${{ steps.meta.outputs.zip_name }}" --format=zip "${{ steps.meta.outputs.pkg_name }}"
-
-      - name: 11. Publish to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ inputs.qt_version }}
-          name: Qt ${{ inputs.qt_version }}
-          draft: false
-          files: ${{ steps.meta.outputs.zip_name }}
+              The included `CMakeLists.txt` automatically resolves the matching `<OS>/<Arch>/<Compiler>` path, appends it to `CMAKE_PREFIX_PATH`, and exposes `LIBQT_DIR
