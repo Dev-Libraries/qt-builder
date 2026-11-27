@@ -9,75 +9,71 @@ on:
         required: true
         default: '6.12.1'
 
-      # ==================== Target Platforms ====================
-      plat_win11_amd64:
-        description: 'Win11-amd64'
+      section_platforms:
+        description: '▼ Target Platforms (check one or more below)'
+        type: string
+        required: false
+        default: ''
+      Win11-amd64:
         type: boolean
         default: true
-      plat_win11_arm64:
-        description: 'Win11-arm64'
+      Win11-arm64:
         type: boolean
         default: false
-      plat_ubuntu2204_amd64:
-        description: 'Ubuntu22.04-amd64'
+      Ubuntu2204-amd64:
         type: boolean
         default: false
-      plat_ubuntu2204_arm64:
-        description: 'Ubuntu22.04-arm64 (Jetson AGX)'
+      Ubuntu2204-arm64:
         type: boolean
         default: false
-      plat_ubuntu2404_amd64:
-        description: 'Ubuntu24.04-amd64'
+      Ubuntu2404-amd64:
         type: boolean
         default: false
-      plat_ubuntu2404_arm64:
-        description: 'Ubuntu24.04-arm64'
+      Ubuntu2404-arm64:
         type: boolean
         default: false
-      plat_macos_amd64:
-        description: 'MacOS-amd64'
+      MacOS-amd64:
         type: boolean
         default: false
-      plat_macos_arm64:
-        description: 'MacOS-arm64'
+      MacOS-arm64:
         type: boolean
         default: false
 
-      # ==================== Qt Build Options ====================
-      opt_gui:
-        description: 'Qt Gui module (uncheck for headless/CLI)'
+      section_options:
+        description: '▼ Qt Build Options'
+        type: string
+        required: false
+        default: ''
+      QtGui:
         type: boolean
         default: true
-      opt_widgets:
-        description: 'Qt Widgets module'
+      QtWidgets:
         type: boolean
         default: true
-      opt_network:
-        description: 'Qt Network module'
+      QtNetwork:
         type: boolean
         default: true
-      opt_sql:
-        description: 'Qt SQL module'
+      QtSql:
         type: boolean
         default: true
-      opt_opengl:
-        description: 'OpenGL support'
+      OpenGL:
         type: boolean
         default: true
-      opt_svg:
-        description: 'Include qtsvg submodule'
+      QtSvg:
         type: boolean
         default: false
-      opt_serialport:
-        description: 'Include qtserialport submodule'
+      QtSerialPort:
         type: boolean
         default: false
-      opt_static:
-        description: 'Static libraries (unchecked = Shared DLL/SO)'
+      StaticLibs:
         type: boolean
         default: false
 
-      # ==================== Advanced / Custom ====================
+      section_advanced:
+        description: '▼ Advanced / Custom'
+        type: string
+        required: false
+        default: ''
       variant_tag:
         description: 'Optional extra suffix tag (leave blank for default)'
         required: false
@@ -104,14 +100,14 @@ jobs:
           import json
 
           checks = [
-              ("${{ inputs.plat_win11_amd64 }}",      "Win11-amd64"),
-              ("${{ inputs.plat_win11_arm64 }}",      "Win11-arm64"),
-              ("${{ inputs.plat_ubuntu2204_amd64 }}", "Ubuntu22.04-amd64"),
-              ("${{ inputs.plat_ubuntu2204_arm64 }}", "Ubuntu22.04-arm64"),
-              ("${{ inputs.plat_ubuntu2404_amd64 }}", "Ubuntu24.04-amd64"),
-              ("${{ inputs.plat_ubuntu2404_arm64 }}", "Ubuntu24.04-arm64"),
-              ("${{ inputs.plat_macos_amd64 }}",      "MacOS-amd64"),
-              ("${{ inputs.plat_macos_arm64 }}",      "MacOS-arm64"),
+              ("${{ inputs['Win11-amd64'] }}",      "Win11-amd64"),
+              ("${{ inputs['Win11-arm64'] }}",      "Win11-arm64"),
+              ("${{ inputs['Ubuntu2204-amd64'] }}", "Ubuntu22.04-amd64"),
+              ("${{ inputs['Ubuntu2204-arm64'] }}", "Ubuntu22.04-arm64"),
+              ("${{ inputs['Ubuntu2404-amd64'] }}", "Ubuntu24.04-amd64"),
+              ("${{ inputs['Ubuntu2404-arm64'] }}", "Ubuntu24.04-arm64"),
+              ("${{ inputs['MacOS-amd64'] }}",      "MacOS-amd64"),
+              ("${{ inputs['MacOS-arm64'] }}",      "MacOS-arm64"),
           ]
           selected = [name for val, name in checks if val == "true"]
           print(json.dumps(selected))
@@ -220,14 +216,14 @@ jobs:
 
           SUFFIX="${OS_DIR}-${ARCH_DIR}-${COMPILER}"
 
-          [ "${{ inputs.opt_static }}" = "true" ]     && SUFFIX="${SUFFIX}-static"
-          [ "${{ inputs.opt_gui }}" = "false" ]       && SUFFIX="${SUFFIX}-nogui"
-          [ "${{ inputs.opt_widgets }}" = "false" ]   && SUFFIX="${SUFFIX}-nowidgets"
-          [ "${{ inputs.opt_network }}" = "false" ]   && SUFFIX="${SUFFIX}-nonetwork"
-          [ "${{ inputs.opt_sql }}" = "false" ]       && SUFFIX="${SUFFIX}-nosql"
-          [ "${{ inputs.opt_opengl }}" = "false" ]    && SUFFIX="${SUFFIX}-noopengl"
-          [ "${{ inputs.opt_svg }}" = "true" ]        && SUFFIX="${SUFFIX}-svg"
-          [ "${{ inputs.opt_serialport }}" = "true" ] && SUFFIX="${SUFFIX}-serialport"
+          [ "${{ inputs.StaticLibs }}" = "true" ]   && SUFFIX="${SUFFIX}-static"
+          [ "${{ inputs.QtGui }}" = "false" ]       && SUFFIX="${SUFFIX}-nogui"
+          [ "${{ inputs.QtWidgets }}" = "false" ]   && SUFFIX="${SUFFIX}-nowidgets"
+          [ "${{ inputs.QtNetwork }}" = "false" ]   && SUFFIX="${SUFFIX}-nonetwork"
+          [ "${{ inputs.QtSql }}" = "false" ]       && SUFFIX="${SUFFIX}-nosql"
+          [ "${{ inputs.OpenGL }}" = "false" ]      && SUFFIX="${SUFFIX}-noopengl"
+          [ "${{ inputs.QtSvg }}" = "true" ]        && SUFFIX="${SUFFIX}-svg"
+          [ "${{ inputs.QtSerialPort }}" = "true" ] && SUFFIX="${SUFFIX}-serialport"
 
           if [ -n "${{ inputs.variant_tag }}" ]; then
             CLEAN_TAG=$(echo "${{ inputs.variant_tag }}" | tr -cd 'a-zA-Z0-9_-')
@@ -260,8 +256,8 @@ jobs:
           }
 
           download_submodule "qtbase"
-          [ "${{ inputs.opt_svg }}" = "true" ]        && download_submodule "qtsvg"
-          [ "${{ inputs.opt_serialport }}" = "true" ] && download_submodule "qtserialport"
+          [ "${{ inputs.QtSvg }}" = "true" ]        && download_submodule "qtsvg"
+          [ "${{ inputs.QtSerialPort }}" = "true" ] && download_submodule "qtserialport"
 
       - name: 7. Configure, Build & Install
         shell: bash
@@ -278,12 +274,12 @@ jobs:
             fi
           fi
 
-          [ "${{ inputs.opt_static }}" = "true" ]  && EXTRA_FLAGS="$EXTRA_FLAGS -DBUILD_SHARED_LIBS=OFF" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DBUILD_SHARED_LIBS=ON"
-          [ "${{ inputs.opt_gui }}" = "true" ]     && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_gui=ON"     \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_gui=OFF"
-          [ "${{ inputs.opt_widgets }}" = "true" ] && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_widgets=ON" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_widgets=OFF"
-          [ "${{ inputs.opt_network }}" = "true" ] && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_network=ON" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_network=OFF"
-          [ "${{ inputs.opt_sql }}" = "true" ]     && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_sql=ON"     \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_sql=OFF"
-          [ "${{ inputs.opt_opengl }}" = "true" ]  && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_opengl=ON"  \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_opengl=OFF"
+          [ "${{ inputs.StaticLibs }}" = "true" ] && EXTRA_FLAGS="$EXTRA_FLAGS -DBUILD_SHARED_LIBS=OFF" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DBUILD_SHARED_LIBS=ON"
+          [ "${{ inputs.QtGui }}" = "true" ]      && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_gui=ON"     \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_gui=OFF"
+          [ "${{ inputs.QtWidgets }}" = "true" ]  && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_widgets=ON" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_widgets=OFF"
+          [ "${{ inputs.QtNetwork }}" = "true" ]  && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_network=ON" \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_network=OFF"
+          [ "${{ inputs.QtSql }}" = "true" ]      && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_sql=ON"     \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_sql=OFF"
+          [ "${{ inputs.OpenGL }}" = "true" ]     && EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_opengl=ON"  \vert{}\vert{} EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_opengl=OFF"
 
           cmake -S qtbase-src -B build-qtbase -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -311,8 +307,8 @@ jobs:
             cmake --install "build-${MOD}"
           }
 
-          [ "${{ inputs.opt_svg }}" = "true" ]        && build_submodule "qtsvg"
-          [ "${{ inputs.opt_serialport }}" = "true" ] && build_submodule "qtserialport"
+          [ "${{ inputs.QtSvg }}" = "true" ]        && build_submodule "qtsvg"
+          [ "${{ inputs.QtSerialPort }}" = "true" ] && build_submodule "qtserialport"
 
       - name: 8. Export runtime dependencies & root install_deps.sh (Ubuntu)
         if: startsWith(steps.platform.outputs.os_dir, 'Ubuntu')
