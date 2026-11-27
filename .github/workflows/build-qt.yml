@@ -1,5 +1,5 @@
 name: Build Qt Cross Platform
-run-name: Build Qt ${{ inputs.qt_version }} -${{ inputs.target_platform }}${{ inputs.opt_static && ' +static' \vert{}\vert{} '' }}${{ inputs.opt_svg && ' +svg' || '' }}${{ inputs.opt_serialport && ' +serialport' \vert{}\vert{} '' }}${{ !inputs.opt_gui && ' -nogui' || '' }}${{ !inputs.opt_widgets && ' -nowidgets' \vert{}\vert{} '' }}${{ inputs.variant_tag != '' && format(' ({0})', inputs.variant_tag) || '' }}
+run-name: Build Qt ${{ inputs.qt_version }} - ${{ inputs.target_platform }}
 
 on:
   workflow_dispatch:
