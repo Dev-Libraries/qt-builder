@@ -1,20 +1,19 @@
-name: Build Qt Cross Platform
+name: Build Qt
 run-name: Build Qt ${{ inputs.qt_version }} - ${{ inputs.target_platform }}${{ inputs.variant_tag != '' && format(' ({0})', inputs.variant_tag) || '' }}
 
 on:
   workflow_dispatch:
     inputs:
       qt_version:
-        description: 'Phiên bản Qt cần build (vd: 6.12.1)'
+        description: 'Qt version to build (e.g., 6.12.1)'
         required: true
         default: '6.12.1'
       target_platform:
-        description: 'Chọn nền tảng (OS - Arch)'
+        description: 'Target platform (OS - Arch)'
         type: choice
         required: true
-        default: 'Win10-amd64'
+        default: 'Win11-amd64'
         options:
-          - Win10-amd64
           - Win11-amd64
           - Win11-arm64
           - Ubuntu22.04-amd64
@@ -24,11 +23,11 @@ on:
           - MacOS-amd64
           - MacOS-arm64
       variant_tag:
-        description: 'Nhãn hậu tố tùy chọn (vd: minimal, full - để trống nếu mặc định)'
+        description: 'Optional suffix tag (e.g., minimal, full - leave blank for default)'
         required: false
         default: ''
       custom_cmake_flags:
-        description: 'Cờ CMake bổ sung tùy ý (vd: -DQT_FEATURE_sql=OFF)'
+        description: 'Extra CMake flags (e.g., -DQT_FEATURE_sql=OFF)'
         required: false
         default: ''
 
@@ -39,7 +38,6 @@ jobs:
   build-and-release:
     runs-on: >-
       ${{
-        inputs.target_platform == 'Win10-amd64'       && 'windows-2022' ||
         inputs.target_platform == 'Win11-amd64'       && 'windows-2025' ||
         inputs.target_platform == 'Win11-arm64'       && 'windows-11-arm' ||
         inputs.target_platform == 'Ubuntu22.04-amd64' && 'ubuntu-22.04' ||
@@ -52,7 +50,7 @@ jobs:
     container: ${{ inputs.target_platform == 'Ubuntu22.04-arm64' && 'ubuntu:22.04' || null }}
 
     steps:
-      - name: 1. Phân tách OS & Arch
+      - name: 1. Parse OS & Arch
         id: platform
         shell: bash
         run: |
@@ -62,7 +60,7 @@ jobs:
           echo "os_dir=$OS_DIR" >> $GITHUB_OUTPUT
           echo "arch_dir=$ARCH_DIR" >> $GITHUB_OUTPUT
 
-      - name: 2. Cài công cụ & thư viện hệ thống (Ubuntu / Container)
+      - name: 2. Install system build dependencies (Ubuntu / Container)
         if: startsWith(steps.platform.outputs.os_dir, 'Ubuntu')
         shell: bash
         run: |
@@ -70,7 +68,7 @@ jobs:
           command -v sudo >/dev/null 2>&1 && SUDO="sudo"
           export DEBIAN_FRONTEND=noninteractive
           $SUDO apt-get update
-          $SUDO apt-get install -y build-essential python3-pip curl xz-utils p7zip-full pkg-config \
+          $SUDO apt-get install -y build-essential python3-pip curl xz-utils pkg-config \
             libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev \
             libfontconfig1-dev libfreetype-dev libx11-dev libx11-xcb-dev \
             libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev \
@@ -78,16 +76,15 @@ jobs:
             libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render-util0-dev \
             libxcb-shape0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev \
             libxcb-xkb-dev libdbus-1-dev libglib2.0-dev
-          # Dùng CMake & Ninja bản mới qua pip để tương thích tốt với Qt 6.12+ trên cả Ubuntu 22.04
           pip3 install --upgrade cmake ninja || pip3 install --break-system-packages --upgrade cmake ninja
 
-      - name: 3. Thiết lập MSVC (Windows)
+      - name: 3. Setup MSVC (Windows)
         if: startsWith(steps.platform.outputs.os_dir, 'Win')
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ steps.platform.outputs.arch_dir == 'amd64' && 'x64' || 'arm64' }}
 
-      - name: 4. Đảm bảo có Ninja (Windows / macOS)
+      - name: 4. Ensure Ninja is available (Windows / macOS)
         shell: bash
         run: |
           if [[ "${{ steps.platform.outputs.os_dir }}" == Win* ]]; then
@@ -96,7 +93,7 @@ jobs:
             brew install ninja
           fi
 
-      - name: 5. Nhận diện Compiler & chốt tên file Release
+      - name: 5. Detect Compiler & set Release naming
         id: meta
         shell: bash
         run: |
@@ -130,14 +127,11 @@ jobs:
           PKG_NAME="libqt_${VER}"
           ZIP_NAME="${PKG_NAME}-${SUFFIX}.zip"
 
-          echo "Detected: OS=$OS_DIR | ARCH=$ARCH_DIR | COMPILER=$COMPILER"
-          echo "Output ZIP: $ZIP_NAME"
-
           echo "compiler=$COMPILER" >> $GITHUB_OUTPUT
           echo "pkg_name=$PKG_NAME" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      - name: 6. Tải mã nguồn qtbase ${{ inputs.qt_version }}
+      - name: 6. Download qtbase ${{ inputs.qt_version }} source
         shell: bash
         run: |
           VER="${{ inputs.qt_version }}"
@@ -148,7 +142,7 @@ jobs:
           tar -xf qtbase.tar.xz
           mv "qtbase-everywhere-src-${VER}" qtbase-src
 
-      - name: 7. Biên dịch và Cài đặt
+      - name: 7. Configure, Build & Install
         shell: bash
         run: |
           PKG_DIR="$PWD/dist/${{ steps.meta.outputs.pkg_name }}"
@@ -173,20 +167,85 @@ jobs:
           cmake --build build --parallel
           cmake --install build
 
-      - name: 8. Tạo file CMakeLists.txt tự nhận diện OS / Arch / Compiler
+      - name: 8. Export runtime dependencies & root install_deps.sh (Ubuntu)
+        if: startsWith(steps.platform.outputs.os_dir, 'Ubuntu')
+        shell: bash
+        run: |
+          PKG_DIR="$PWD/dist/${{ steps.meta.outputs.pkg_name }}"
+          INSTALL_DIR="${PKG_DIR}/${{ steps.platform.outputs.os_dir }}/${{ steps.platform.outputs.arch_dir }}/${{ steps.meta.outputs.compiler }}"
+
+          find "$INSTALL_DIR" -type f \( -name "*.so*" -o -executable \) -exec ldd {} + 2>/dev/null \
+            | awk '/=> \// {print $3}' \
+            | sort -u \
+            | while read -r lib; do
+                REAL_LIB=$(readlink -f "$lib")
+                dpkg -S "$lib" "$REAL_LIB" 2>/dev/null | cut -d: -f1
+              done \
+            | sort -u \
+            | grep -vE '^(libc6|libgcc-s1|libstdc\+\+6)$' > "$INSTALL_DIR/apt-runtime-deps.txt"
+
+          cat <<-'EOF' > "$PKG_DIR/install_deps.sh"
+          #!/usr/bin/env bash
+          set -e
+
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+          # Detect Ubuntu version
+          if [ -f /etc/os-release ]; then
+              . /etc/os-release
+              OS_DIR="Ubuntu${VERSION_ID}"
+          else
+              echo "[Error] Cannot detect Ubuntu version (/etc/os-release not found)."
+              exit 1
+          fi
+
+          # Detect CPU architecture
+          UNAME_ARCH="$(uname -m)"
+          case "$UNAME_ARCH" in
+              x86_64|amd64)  ARCH_DIR="amd64" ;;
+              aarch64|arm64) ARCH_DIR="arm64" ;;
+              *)
+                  echo "[Error] Unsupported architecture: $UNAME_ARCH"
+                  exit 1
+                  ;;
+          esac
+
+          # Find matching compiler folder (prefer g++ version if installed, otherwise pick available)
+          DEPS_FILE=""
+          if command -v g++ >/dev/null 2>&1; then
+              GCC_MAJOR="$(g++ -dumpversion | cut -d. -f1)"
+              CANDIDATE="$SCRIPT_DIR/$OS_DIR/$ARCH_DIR/gcc${GCC_MAJOR}/apt-runtime-deps.txt"
+              [ -f "$CANDIDATE" ] && DEPS_FILE="$CANDIDATE"
+          fi
+
+          if [ -z "$DEPS_FILE" ]; then
+              DEPS_FILE="$(find "$SCRIPT_DIR/$OS_DIR/$ARCH_DIR" -maxdepth 2 -name "apt-runtime-deps.txt" 2>/dev/null | head -n1)"
+          fi
+
+          if [ -z "$DEPS_FILE" ] || [ ! -f "$DEPS_FILE" ]; then
+              echo "[Error] No runtime dependency list found for $OS_DIR/$ARCH_DIR under $SCRIPT_DIR"
+              exit 1
+          fi
+
+          echo "[Qt] Installing runtime system packages listed in: $DEPS_FILE"
+          PKGS=$(tr '\n' ' ' < "$DEPS_FILE")
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $PKGS
+          echo "[Qt] Runtime dependencies installed successfully."
+          EOF
+          chmod +x "$PKG_DIR/install_deps.sh"
+
+      - name: 9. Generate root CMakeLists.txt & README.md
         shell: bash
         run: |
           PKG_NAME="${{ steps.meta.outputs.pkg_name }}"
-          cat << 'EOF' > "dist/${PKG_NAME}/CMakeLists.txt"
+          VER="${{ inputs.qt_version }}"
+
+          cat <<-'EOF' > "dist/${PKG_NAME}/CMakeLists.txt"
           cmake_minimum_required(VERSION 3.21)
 
-          # 1. Nhận diện chi tiết hệ điều hành
           if(WIN32)
-              if(CMAKE_SYSTEM_VERSION VERSION_GREATER_EQUAL "10.0.22000")
-                  set(_QT_OS "Win11")
-              else()
-                  set(_QT_OS "Win10")
-              endif()
+              set(_QT_OS "Win11")
           elseif(APPLE)
               set(_QT_OS "MacOS")
           elseif(UNIX)
@@ -202,20 +261,18 @@ jobs:
                   set(_QT_OS "Linux")
               endif()
           else()
-              message(FATAL_ERROR "[Qt] Hệ điều hành không được hỗ trợ: ${CMAKE_SYSTEM_NAME}")
+              message(FATAL_ERROR "[Qt] Unsupported OS: ${CMAKE_SYSTEM_NAME}")
           endif()
 
-          # 2. Nhận diện kiến trúc CPU
           string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _PROC_LOWER)
           if(_PROC_LOWER MATCHES "aarch64|arm64")
               set(_QT_ARCH "arm64")
           elseif(_PROC_LOWER MATCHES "x86_64|amd64|x64")
               set(_QT_ARCH "amd64")
           else()
-              message(FATAL_ERROR "[Qt] Kiến trúc CPU không được hỗ trợ: ${CMAKE_SYSTEM_PROCESSOR}")
+              message(FATAL_ERROR "[Qt] Unsupported CPU architecture: ${CMAKE_SYSTEM_PROCESSOR}")
           endif()
 
-          # 3. Nhận diện trình biên dịch
           if(MSVC)
               if(MSVC_VERSION GREATER_EQUAL 1950)
                   set(_QT_COMPILER "msvc2026")
@@ -228,36 +285,76 @@ jobs:
           elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
               set(_QT_COMPILER "clang")
           else()
-              message(FATAL_ERROR "[Qt] Trình biên dịch không được hỗ trợ: ${CMAKE_CXX_COMPILER_ID}")
+              message(FATAL_ERROR "[Qt] Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
           endif()
 
-          # 4. Tìm thư mục Qt tương ứng (kèm fallback Win11 -> Win10 nếu cùng MSVC)
           set(_QT_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${_QT_OS}/${_QT_ARCH}/${_QT_COMPILER}")
-          if(NOT EXISTS "${_QT_TARGET_DIR}" AND _QT_OS STREQUAL "Win11" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Win10/${_QT_ARCH}/${_QT_COMPILER}")
-              set(_QT_OS "Win10")
-              set(_QT_TARGET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Win10/${_QT_ARCH}/${_QT_COMPILER}")
-          endif()
-
           if(NOT EXISTS "${_QT_TARGET_DIR}")
-              message(FATAL_ERROR "[Qt] Không tìm thấy bản build Qt cho ${_QT_OS}/${_QT_ARCH}/${_QT_COMPILER} tại: ${_QT_TARGET_DIR}")
+              message(FATAL_ERROR "[Qt] Prebuilt Qt not found for ${_QT_OS}/${_QT_ARCH}/${_QT_COMPILER} at: ${_QT_TARGET_DIR}")
           endif()
 
-          message(STATUS "[Qt] Đang sử dụng bản build cho: ${_QT_OS}/${_QT_ARCH}/${_QT_COMPILER}")
+          message(STATUS "[Qt] Using prebuilt package for: ${_QT_OS}/${_QT_ARCH}/${_QT_COMPILER}")
 
           set(_NEW_PREFIX_PATH "${_QT_TARGET_DIR};${CMAKE_PREFIX_PATH}")
           set(CMAKE_PREFIX_PATH "${_NEW_PREFIX_PATH}" PARENT_SCOPE)
           set(LIBQT_DIR "${_QT_TARGET_DIR}" PARENT_SCOPE)
           EOF
 
-      - name: 9. Nén file ZIP và đăng lên GitHub Releases
+          cat << EOF > "dist/${PKG_NAME}/README.md"
+          # Prebuilt Qt ${VER} (\`${PKG_NAME}\`)
+
+          Prebuilt Qt (${VER}) binaries structured for cross-platform CMake projects.
+
+          ## Directory Structure
+
+          \`\`\`text
+          ${PKG_NAME}/
+          ├── CMakeLists.txt       # Auto-detects OS, architecture, and compiler
+          ├── README.md            # Integration and setup guide
+          ├── install_deps.sh      # Runtime dependency installer (Linux/Ubuntu builds only)
+          └── <OS>/<Arch>/<Compiler>/
+              ├── bin/
+              ├── include/
+              ├── lib/
+              └── plugins/
+          \`\`\`
+
+          Multiple platform archives (e.g., \`Win11-amd64-msvc2026\`, \`Ubuntu22.04-arm64-gcc11\`) can be extracted into the same \`${PKG_NAME}/\` root directory side by side.
+
+          ## CMake Integration
+
+          1. Extract this archive into your project's third-party directory (e.g., \`ThirdParty/${PKG_NAME}\`).
+          2. Add the subdirectory before calling \`find_package(Qt6 ...)\` in your root \`CMakeLists.txt\`:
+
+          \`\`\`cmake
+          add_subdirectory(ThirdParty/${PKG_NAME})
+          find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+          \`\`\`
+
+          The included \`CMakeLists.txt\` automatically resolves the matching \`<OS>/<Arch>/<Compiler>\` path, appends it to \`CMAKE_PREFIX_PATH\`, and exposes \`LIBQT_DIR\`.
+
+          ## Linux / Ubuntu Target Setup (Including NVIDIA Jetson)
+
+          On clean Ubuntu or Jetson environments, required X11/XCB/OpenGL runtime libraries may not be pre-installed. Run the bundled helper script from the package root before launching your application:
+
+          \`\`\`bash
+          chmod +x install_deps.sh
+          ./install_deps.sh
+          \`\`\`
+
+          This script detects the current Ubuntu version and architecture, reads \`<OS>/<Arch>/<Compiler>/apt-runtime-deps.txt\`, and installs only the required runtime packages via \`apt-get\`.
+          EOF
+
+      - name: 10. Package ZIP archive
         shell: bash
         run: |
           cd dist
-          7z a -tzip "../${{ steps.meta.outputs.zip_name }}" "${{ steps.meta.outputs.pkg_name }}"
+          cmake -E tar "cfv" "../${{ steps.meta.outputs.zip_name }}" --format=zip "${{ steps.meta.outputs.pkg_name }}"
 
-      - name: 10. Đẩy lên GitHub Releases
+      - name: 11. Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ inputs.qt_version }}
           name: Qt ${{ inputs.qt_version }}
+          draft: false
           files: ${{ steps.meta.outputs.zip_name }}
