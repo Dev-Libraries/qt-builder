@@ -8,73 +8,76 @@ on:
         description: 'Qt version to build (e.g., 6.12.1)'
         required: true
         default: '6.12.1'
-      # --- Target Platforms (Checkbox List) ---
+
+      # ==================== Target Platforms ====================
       plat_win11_amd64:
-        description: '[Platform] Win11-amd64'
+        description: 'Win11-amd64'
         type: boolean
         default: true
       plat_win11_arm64:
-        description: '[Platform] Win11-arm64'
+        description: 'Win11-arm64'
         type: boolean
         default: false
       plat_ubuntu2204_amd64:
-        description: '[Platform] Ubuntu22.04-amd64'
+        description: 'Ubuntu22.04-amd64'
         type: boolean
         default: false
       plat_ubuntu2204_arm64:
-        description: '[Platform] Ubuntu22.04-arm64 (Jetson AGX)'
+        description: 'Ubuntu22.04-arm64 (Jetson AGX)'
         type: boolean
         default: false
       plat_ubuntu2404_amd64:
-        description: '[Platform] Ubuntu24.04-amd64'
+        description: 'Ubuntu24.04-amd64'
         type: boolean
         default: false
       plat_ubuntu2404_arm64:
-        description: '[Platform] Ubuntu24.04-arm64'
+        description: 'Ubuntu24.04-arm64'
         type: boolean
         default: false
       plat_macos_amd64:
-        description: '[Platform] MacOS-amd64'
+        description: 'MacOS-amd64'
         type: boolean
         default: false
       plat_macos_arm64:
-        description: '[Platform] MacOS-arm64'
+        description: 'MacOS-arm64'
         type: boolean
         default: false
-      # --- Qt Build Options (Checkbox List) ---
+
+      # ==================== Qt Build Options ====================
       opt_gui:
-        description: '[Option] Qt Gui module (uncheck for headless/CLI)'
+        description: 'Qt Gui module (uncheck for headless/CLI)'
         type: boolean
         default: true
       opt_widgets:
-        description: '[Option] Qt Widgets module'
+        description: 'Qt Widgets module'
         type: boolean
         default: true
       opt_network:
-        description: '[Option] Qt Network module'
+        description: 'Qt Network module'
         type: boolean
         default: true
       opt_sql:
-        description: '[Option] Qt SQL module'
+        description: 'Qt SQL module'
         type: boolean
         default: true
       opt_opengl:
-        description: '[Option] OpenGL support'
+        description: 'OpenGL support'
         type: boolean
         default: true
       opt_svg:
-        description: '[Option] Include qtsvg submodule'
+        description: 'Include qtsvg submodule'
         type: boolean
         default: false
       opt_serialport:
-        description: '[Option] Include qtserialport submodule'
+        description: 'Include qtserialport submodule'
         type: boolean
         default: false
       opt_static:
-        description: '[Option] Static libraries (unchecked = Shared DLL/SO)'
+        description: 'Static libraries (unchecked = Shared DLL/SO)'
         type: boolean
         default: false
-      # --- Optional Suffix & Custom Overrides ---
+
+      # ==================== Advanced / Custom ====================
       variant_tag:
         description: 'Optional extra suffix tag (leave blank for default)'
         required: false
