@@ -99,8 +99,9 @@ jobs:
             libxext-dev libxfixes-dev libxi-dev libxrender-dev libxcb1-dev \
             libxcb-cursor-dev libxcb-glx0-dev libxcb-icccm4-dev libxcb-image0-dev \
             libxcb-keysyms1-dev libxcb-randr0-dev libxcb-render-util0-dev \
-            libxcb-shape0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-xfixes0-dev \
-            libxcb-xkb-dev libdbus-1-dev libglib2.0-dev
+            libxcb-shape0-dev libxcb-shm0-dev libxcb-sync-dev libxcb-util-dev \
+            libxcb-xfixes0-dev libxcb-xkb-dev libsm-dev libice-dev \
+            libdbus-1-dev libglib2.0-dev
           pip3 install --upgrade cmake ninja || pip3 install --break-system-packages --upgrade cmake ninja
 
       - name: 3. Setup MSVC (Windows)
@@ -149,6 +150,8 @@ jobs:
             else
               EXTRA_FLAGS="$EXTRA_FLAGS -DCMAKE_OSX_ARCHITECTURES=arm64"
             fi
+          elif [ "${{ steps.meta.outputs.os_dir }}" = "Linux" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS -DQT_FEATURE_xcb=ON"
           fi
 
           cmake -S qtbase-src -B build-qtbase -G Ninja \
@@ -161,6 +164,11 @@ jobs:
 
           cmake --build build-qtbase --parallel
           cmake --install build-qtbase
+
+          if [ "${{ steps.meta.outputs.os_dir }}" = "Linux" ] && [ ! -f "$INSTALL_DIR/plugins/platforms/libqxcb.so" ]; then
+            echo "::error::libqxcb.so was not built! Check XCB dependencies."
+            exit 1
+          fi
 
           if [ "${{ steps.meta.outputs.os_dir }}" = "Windows" ]; then
             QT_CMAKE="$INSTALL_DIR/bin/qt-cmake.bat"
@@ -314,7 +322,7 @@ jobs:
           (pkg_dir / "README.md").write_text(textwrap.dedent(f"""\
               # Prebuilt Qt {ver} (`{pkg_name}`)
 
-              Prebuilt Qt ({ver} with `qtserialport`) binaries structured for cross-platform CMake projects.
+              Prebuilt Qt ({ver} with `qtserialport` & `xcb`) binaries structured for cross-platform CMake projects.
 
               ## Directory Structure
 
